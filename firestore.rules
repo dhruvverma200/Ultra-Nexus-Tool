@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/user_roles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid) || isAdmin();
+    }
+
+    match /user_roles/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      // Bootstrap rule: a user may create their OWN role doc only as role 'user',
+      // OR as 'admin' iff their auth email matches the seed admin email.
+      allow create: if isOwner(uid) && (
+        request.resource.data.role == 'user' ||
+        (request.resource.data.role == 'admin' && request.auth.token.email == 'shouryverma29@gmail.com')
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /subscriptions/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create, update: if isOwner(uid) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /usage_quotas/{docId} {
+      allow read, write: if isSignedIn() && docId.matches(request.auth.uid + '_.*');
+      allow read: if isAdmin();
+    }
+
+    match /history/{docId} {
+      allow read, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin();
+    }
+
+    match /blog_posts/{id} {
+      allow read: if resource.data.published == true || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /contact_submissions/{id} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /ads/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /audit_logs/{id} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+    }
+
+    match /visitor_events/{id} {
+      allow create: if true;
+      allow read: if isAdmin();
+    }
+
+    match /notes/{id} {
+      allow read, write, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+    }
+  }
+}
